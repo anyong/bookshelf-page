@@ -10,46 +10,7 @@ import Promise from 'bluebird';
 const defaultOptions = {
     page: 1,
     limit: 10,
-    sort: 'id',
-    order: 'ASC',
 };
-
-/**
- * Applies the query object or function passed through by the user
- * This is basically copied from:
- *
- * https://github.com/tgriesser/bookshelf/blob/master/src/helpers.js#L41-L74
- */
-function fullQuery (qb, method) {
-    if (typeof method === 'function') {
-        // `method` is a query builder callback. Call it on the query builder
-        // object.
-        Reflect.apply(method, qb, [qb]);
-    } else if (typeof method === 'object') {
-        // `method` is an object. Use keys as methods and values as arguments to
-        // the query builder.
-        for (const key in method) {
-            if (method.hasOwnProperty(key)) {
-                const target = Array.isArray(method[key]) ? method[key] : [method[key]];
-
-                Reflect.apply(qb[key], qb, target);
-            }
-        }
-    }
-
-    return null;
-}
-
-/**
- * Applies the pagination limit, offset, and ordering of results
- */
-function paginationQuery ({ qb, method, limit, offset, orderBy }) {
-    fullQuery(qb, method);
-    qb.limit(limit);
-    qb.offset(offset);
-    qb.orderBy(...orderBy);
-    return null;
-}
 
 /**
  * Exports a plugin to pass into the bookshelf instance, i.e.:
@@ -91,56 +52,59 @@ function paginationQuery ({ qb, method, limit, offset, orderBy }) {
 export default function paginate (bookshelf) {
     bookshelf.Model = bookshelf.Model.extend({
 
-        paginate (pagingOptions = defaultOptions, queryOptions, fetchOptions) {
-            const options = Object.assign({}, defaultOptions, pagingOptions);
-            const { limit, page, sort, order } = options;
+        // Need to remove this query from the query builder in 'count' function because GROUP BY is not necessary
+        orderBy (sort, order) {
+            return this.query(qb => {
+                qb.orderBy(sort, order);
+            });
+        },
+
+        paginate (userOptions) {
+            const options = Object.assign({}, defaultOptions, userOptions);
+            const {limit, page, ...fetchOptions} = options;
             const offset = limit * (page - 1);
 
             const tableName = this.constructor.prototype.tableName;
             const idAttribute = this.constructor.prototype.idAttribute ?
                 this.constructor.prototype.idAttribute : 'id';
 
-            let orderBy;
+            const fetchPage = () => {
+                // const pageQuery = clone(this.query());
+                const pager = this.constructor.forge();
 
-            if (sort.indexOf('.') > -1) {
-                orderBy = [tableName + sort, order];
-            } else {
-                orderBy = [sort, order];
-            }
+                return pager
+                    .query(qb => {
+                        Object.assign(qb, this.query().clone());
+                        Reflect.apply(qb.limit, qb, [limit]);
+                        Reflect.apply(qb.offset, qb, [offset]);
+                        return null;
+                    })
 
+                    .fetchAll(fetchOptions);
+            };
 
-            const fetchPage = () => this.constructor.forge()
+            const count = () => {
+                const counter = this.constructor.forge();
 
-                .query(qb => paginationQuery({
-                    qb, limit, offset, orderBy,
-                    method: queryOptions,
-                }))
-
-                .fetchAll(fetchOptions);
-
-            const count = () => this.constructor.forge()
-
-                .query(qb => fullQuery(qb, queryOptions))
-
-                .count(`${tableName}.${idAttribute}`)
-
-                .then(total => {
-                    return {
-                        total,
-                        page,
-                        limit,
-                        offset,
-                    };
-                });
+                return counter
+                    .query(qb => {
+                        Object.assign(qb, this.query().clone());
+                        Reflect.apply(qb.count, qb, [`${tableName}.${idAttribute}`]);
+                    })
+                    .fetch()
+                    .then(result => {
+                        return {
+                            page, limit, offset,
+                            total: result.get('count'),
+                        };
+                    });
+            };
 
             return Promise.join(fetchPage(), count())
-
-                .then(([rows, meta]) => Object.assign({ rows }, meta, {rowCount: rows.length }));
+                .then(([rows, meta]) => {
+                    return Object.assign({rows}, meta, {rowCount: rows.length});
+                });
         },
 
-    }, {
-        paginate (options, queryOptions, fetchOptions) {
-            return this.forge().paginate(options, queryOptions, fetchOptions);
-        },
     });
 }
