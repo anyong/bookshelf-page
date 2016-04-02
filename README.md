@@ -16,7 +16,7 @@ npm install -s bookshelf-page
 
 Then, add the plugin to your bookshelf instance:
 
-```
+```js
 import config from './knexfile';
 import knex from 'knex';
 import bookshelf from 'bookshelf';
@@ -82,20 +82,21 @@ Below is a complete example showing the user of a JOIN query with sort/ordering,
 pagination, and related models.
 
 ```js
-Car
-.query(function (qb) {
-   qb.innerJoin('manufacturers', 'cars.manufacturer_id', 'manufacturers.id');
-   qb.groupBy('cars.id');
-   qb.where('manufacturers.country', '=', 'Sweden');
-})
-.orderBy('-productionYear') // Same as .orderBy('cars.productionYear', 'DESC')
-.fetchPage({
-   limit: 15, // Defaults to 10 if not specified
-   page: 3, // Defaults to 1 if not specified; same as {offset: 30} with limit of 15.
-})
-.then(function (results) {
-   console.log(results); // Paginated results object with metadata example below
-})
+    Car
+    .query(function (qb) {
+        qb.innerJoin('manufacturers', 'cars.manufacturer_id', 'manufacturers.id');
+        qb.groupBy('cars.id');
+        qb.where('manufacturers.country', '=', 'Sweden');
+    })
+    .orderBy('-productionYear') // Same as .orderBy('cars.productionYear', 'DESC')
+    .fetchPage({
+        limit: 15, // Defaults to 10 if not specified
+        page: 3, // Defaults to 1 if not specified; same as {offset: 30} with limit of 15.
+        withRelated: ['engine'] // Will be passed to Model#fetchAll
+    })
+    .then(function (results) {
+        console.log(results); // Paginated results object with metadata example below
+    })
 ```
 
 The `results` object contains the requested rows and pagination metadata.

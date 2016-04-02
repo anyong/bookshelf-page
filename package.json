@@ -1,6 +1,6 @@
 {
   "name": "bookshelf-page",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Simple pagination for Bookshelf.js",
   "author": {
     "name": "Edward Greve",
