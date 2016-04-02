@@ -1,16 +1,5 @@
 import Promise from 'bluebird';
-
-/**
- * The default pagination options, these can be overridden
- * by the user by passing an options object as the first argument
- * to the Model#pagination call. The 'sort' column here can
- * refer to any column in the Model's table or another table using
- * the standard 'table.column' notation.
- */
-const defaultOptions = {
-    page: 1,
-    limit: 10,
-};
+import { remove as _remove } from 'lodash';
 
 /**
  * Exports a plugin to pass into the bookshelf instance, i.e.:
@@ -18,65 +7,152 @@ const defaultOptions = {
  *      import config from './knexfile';
  *      import knex from 'knex';
  *      import bookshelf from 'bookshelf';
- *      import pagination from 'bookshelf-pagination-plugin';
  *
  *      const ORM = bookshelf(knex(config));
  *
- *      ORM.plugin(pagination);
+ *      ORM.plugin('bookshelf-pagination-plugin');
  *
  *      export default ORM;
  *
- * The plugin attaches one static and one instance method to the bookshelf
- * Model object, both called 'paginate'.
+ * The plugin attaches two instance methods to the bookshelf
+ * Model object: orderBy and fetchPage.
  *
- * Model#paginate takes three parameters:
+ * Model#orderBy calls the underlying query builder's orderBy method, and
+ * is useful for ordering the paginated results.
  *
- *      - an options object as described above
- *      - a query builder object or function, the same as what would be passed
- *        to Model##query
- *      - the fetch options object, same as what gets passed to Model#fetchAll
+ * Model#fetchPage works like Model#fetchAll, but returns a single page of
+ * results instead of all results, as well as the pagination information
  *
- * The method returns a promise that resolves with an object containing the
- * found rows and pagination metadata:
- *
- *      {
- *          total: (integer),
- *          page: (integer),
- *          offset: (integer),
- *          rows: (Array[Model])
- *      }
- *
- * This allows for simple creation of paginated complex queries.
- * See the cars-api-example.js gist for an example.
+ * See methods below for details.
  */
-export default function paginate (bookshelf) {
+export default function paginationPlugin (bookshelf) {
+
     bookshelf.Model = bookshelf.Model.extend({
 
-        // Need to remove this query from the query builder in 'count' function because GROUP BY is not necessary
+        /**
+         * @method Model#orderBy
+         * @since 0.9.3
+         * @description
+         *
+         * Specifies the column to sort on and sort order.
+         *
+         * The order parameter is optional, and defaults to 'ASC'. You may
+         * also specify 'DESC' order by prepending a hyphen to the sort column
+         * name. `orderBy("date", 'DESC')` is the same as `orderBy("-date")`.
+         *
+         * Unless specified using dot notation (i.e., "table.column"), the default
+         * table will be the table name of the model `orderBy` was called on.
+         *
+         * @example
+         *
+         * Cars.forge().orderBy('color', 'ASC').fetchAll()
+         *    .then(function (rows) { // ...
+         *
+         * @param sort {string}
+         *   Column to sort on
+         * @param order {string}
+         *   Ascending ('ASC') or descending ('DESC') order
+         */
         orderBy (sort, order) {
+            const tableName = this.constructor.prototype.tableName;
+
+            const _order = order || (sort.startsWith('-') ? 'DESC' : 'ASC');
+
+            let _sort = sort.startsWith('-') ? sort.slice(1) : sort;
+
+            if (_sort.indexOf('.') === -1) {
+                _sort = `${tableName}.${_sort}`;
+            }
+
             return this.query(qb => {
-                qb.orderBy(sort, order);
+                qb.orderBy(_sort, _order);
             });
         },
 
-        paginate (userOptions) {
-            const options = Object.assign({}, defaultOptions, userOptions);
-            const {limit, page, ...fetchOptions} = options;
-            const offset = limit * (page - 1);
+        /**
+         * @method Model#fetchPage
+         * @since 0.9.3
+         * @description
+         *
+         * Similar to {@link Model#fetchAll}, but fetches a single page of results
+         * as specified by the limit (page size) and offset or page number.
+         *
+         * Any options that may be passed to {@link Model#fetchAll} may also be passed
+         * in the options to this method.
+         *
+         * To perform pagination, include a `limit` and _either_ `offset` or `page`.
+         * If an invalid limit, offset, or page parameter is passed
+         * (i.e., limit < 1, offset < 0, page < 1), an error will be thrown.
+         *
+         * Below is an example showing the user of a JOIN query with sort/ordering,
+         * pagination, and related models.
+         *
+         * @example
+         *
+         * Car
+         * .query(function (qb) {
+         *    qb.innerJoin('manufacturers', 'cars.manufacturer_id', 'manufacturers.id');
+         *    qb.groupBy('cars.id');
+         *    qb.where('manufacturers.country', '=', 'Sweden');
+         * })
+         * .orderBy('-productionYear') // Same as .orderBy('cars.productionYear', 'DESC')
+         * .fetchPage({
+         *    limit: 15, // Defaults to 10 if not specified
+         *    page: 3, // Defaults to 1 if not specified; same as {offset: 30} with limit of 15.
+         * })
+         * .then(function (results) {
+         *    console.log(results); // Paginated results object with metadata example below
+         * })
+         *
+         * // Pagination results:
+         *
+         * {
+         *    rows: [<Car>], // the requested page of results
+         *    rowCount: 15, // Would be less than 15 on the last page of results
+         *    total: 53, // Total number of rows found for the query before pagination
+         *    limit: 15, // The requested number of rows per page, same as rowCount except final page
+         *    page: 3, // The requested page number
+         *    offset: 30 // The requested offset, calculated from the page/limit if not provided
+         * }
+         *
+         * @param options {object}
+         *    The pagination options, plus any additional options that will be passed to
+         *    {@link Model#fetchAll}
+         * @returns {Promise<Collection>}
+         */
+        fetchPage (options) {
+            const {limit, page, offset, ...fetchOptions} = options;
+
+            const _limit = limit ? parseInt(limit) : 10;
+            const _page = page ? parseInt(page) : 1;
+            const _offset = offset ? parseInt(offset) : _limit * (_page - 1);
+
+            if (_limit < 1) {
+                throw new Error(`Requested limit: ${limit}. Limit must be greater than 0.`);
+            }
+
+            if (_page < 1) {
+                throw new Error(`Requested page: ${page}. Results start at page 1.`);
+            }
+
+            if (_offset < 0) {
+                throw new Error(`Requested offset: ${offset}. The first row has offset 0.`);
+            }
 
             const tableName = this.constructor.prototype.tableName;
             const idAttribute = this.constructor.prototype.idAttribute ?
                 this.constructor.prototype.idAttribute : 'id';
 
-            const fetchPage = () => {
+            const paginate = () => {
                 // const pageQuery = clone(this.query());
                 const pager = this.constructor.forge();
 
                 return pager
+
                     .query(qb => {
                         Object.assign(qb, this.query().clone());
-                        Reflect.apply(qb.limit, qb, [limit]);
-                        Reflect.apply(qb.offset, qb, [offset]);
+                        Reflect.apply(qb.limit, qb, [_limit]);
+                        Reflect.apply(qb.offset, qb, [_offset]);
                         return null;
                     })
 
@@ -84,25 +160,42 @@ export default function paginate (bookshelf) {
             };
 
             const count = () => {
+                const notNeededQueries = [
+                    'orderByBasic',
+                    'orderByRaw',
+                    'groupByBasic',
+                    'groupByRaw',
+                ];
                 const counter = this.constructor.forge();
 
                 return counter
+
                     .query(qb => {
                         Object.assign(qb, this.query().clone());
-                        Reflect.apply(qb.count, qb, [`${tableName}.${idAttribute}`]);
+
+                        // Remove grouping and ordering. Ordering is unnecessary
+                        // for a count, and grouping returns the entire result set
+                        // What we want instead is to use `DISTINCT`
+                        Reflect.apply(qb.countDistinct, qb, [`${tableName}.${idAttribute}`]);
+                        _remove(qb._statements, statement => notNeededQueries.indexOf(statement.type) > -1);
                     })
-                    .fetch()
+
+                    .fetchAll()
+
                     .then(result => {
-                        return {
-                            page, limit, offset,
-                            total: result.get('count'),
-                        };
+                        const metadata = {page, limit, offset};
+
+                        if (result && result.length == 1) {
+                            metadata.total = result.models[0].get('count');
+                        }
+
+                        return metadata;
                     });
             };
 
-            return Promise.join(fetchPage(), count())
-                .then(([rows, meta]) => {
-                    return Object.assign({rows}, meta, {rowCount: rows.length});
+            return Promise.join(paginate(), count())
+                .then(([rows, metadata]) => {
+                    return Object.assign({rows}, metadata, {rowCount: rows.length});
                 });
         },
 
