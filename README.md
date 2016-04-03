@@ -1,5 +1,19 @@
 # bookshelf-page
 
+### Important
+
+Please note that this plugin will (hopefully) soon move into bookshelf proper, but there are still a few minor
+issues left to work out. Please track the progress of this plugin at:
+
+https://github.com/tgriesser/bookshelf/issues/435 (discussion)
+
+https://github.com/tgriesser/bookshelf/pull/1183 (pull request)
+
+The major API of Model#orderBy and Model#fetchPage will (probably) not change between then
+and now, but the way the pagination metadata is returned in Model#fetchPage might be.
+
+All bookshelf integration tests are currently passing with Node >=4.
+
 [![Version (npm)](https://img.shields.io/npm/v/bookshelf-page.svg)](https://npmjs.com/package/bookshelf-page)
 
 Simple pagination for Bookshelf.js.
