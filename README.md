@@ -1,4 +1,4 @@
-# bookshelf-page
+# bookshelf-page v0.3.0
 
 ### Important
 
@@ -9,10 +9,8 @@ https://github.com/tgriesser/bookshelf/issues/435 (discussion)
 
 https://github.com/tgriesser/bookshelf/pull/1183 (pull request)
 
-The major API of Model#orderBy and Model#fetchPage will (probably) not change between then
-and now, but the way the pagination metadata is returned in Model#fetchPage might be.
-
-All bookshelf integration tests are currently passing with Node >=4.
+From v0.3.0, the API should not differ between this package and the final plugin once it moves into bookshelf
+proper. If you want to use this plugin now, just install it and then see the section on Upgrading below.
 
 [![Version (npm)](https://img.shields.io/npm/v/bookshelf-page.svg)](https://npmjs.com/package/bookshelf-page)
 
@@ -42,16 +40,26 @@ ORM.plugin('bookshelf-page');
 export default ORM;
 ```
 
+### Upgrading
+
+Once this plugin is accepted into `bookshelf`, you just need to change the line above to:
+
+```js
+ORM.plugin('pagination')
+```
+
+and then you can remove `bookshelf-page` from your project.
+
 ## Use
 
 The plugin attaches two instance methods to the bookshelf
-Model object: orderBy and fetchPage.
+Model object: `orderBy` and `fetchPage`.
 
 Model#orderBy calls the underlying query builder's orderBy method, and
 is useful for ordering the paginated results.
 
 Model#fetchPage works like Model#fetchAll, but returns a single page of
-results instead of all results, as well as the pagination information
+results instead of all results, as well as the pagination metadata.
 
 ### Model#orderBy
 
@@ -80,54 +88,69 @@ table will be the table name of the model `orderBy` was called on.
 
 ### Model#fetchPage
 
-Similar to {@link Model#fetchAll}, but fetches a single page of results
-as specified by the limit (page size) and offset or page number.
+Any options that may be passed to `Model#fetchAll` (such as `withRelated`) may also be passed in the options to `fetchPage`, as you can see in the example below.
 
-Any options that may be passed to {@link Model#fetchAll} may also be passed
-in the options to this method.
+To perform pagination, you must pass an `options` object with either `page/pageSize` or `limit/offset` keys. The following two calls are equivalent:
 
-To perform pagination, include a `limit` and _either_ `offset` or `page`.
-If an invalid limit, offset, or page parameter is passed
-(i.e., limit < 1, offset < 0, page < 1), an error will be thrown.
+```js
+fetchPage({page: 10, pageSize: 20});
+// OR
+fetchPage({limit: 20, offset: 180});
+```
+
+By default, with no parameters or missing parameters, `fetchPage` will use an
+options object of `{page: 1, pageSize: 10}`
+
+In the resulting pagination metadata, you will receive back the parameters used for pagination, i.e., either `page/pageSize` **or** `offset/limit`, respectively.
+
+Below is an example showing the user of a JOIN query with sort/ordering,
+pagination, and related models.
 
 #### Example
 
-Below is a complete example showing the user of a JOIN query with sort/ordering,
-pagination, and related models.
+##### Calling `fetchPage`
 
 ```js
-    Car
-    .query(function (qb) {
-        qb.innerJoin('manufacturers', 'cars.manufacturer_id', 'manufacturers.id');
-        qb.groupBy('cars.id');
-        qb.where('manufacturers.country', '=', 'Sweden');
-    })
-    .orderBy('-productionYear') // Same as .orderBy('cars.productionYear', 'DESC')
-    .fetchPage({
-        limit: 15, // Defaults to 10 if not specified
-        page: 3, // Defaults to 1 if not specified; same as {offset: 30} with limit of 15.
-        withRelated: ['engine'] // Will be passed to Model#fetchAll
-    })
-    .then(function (results) {
-        console.log(results); // Paginated results object with metadata example below
-    })
+Car
+.query(function (qb) {
+ qb.innerJoin('manufacturers', 'cars.manufacturer_id', 'manufacturers.id');
+ qb.groupBy('cars.id');
+ qb.where('manufacturers.country', '=', 'Sweden');
+})
+.orderBy('-productionYear') // Same as .orderBy('cars.productionYear', 'DESC')
+.fetchPage({
+ pageSize: 15, // Defaults to 10 if not specified
+ page: 3, // Defaults to 1 if not specified
+
+ // OR
+ // limit: 15,
+ // offset: 30,
+
+ withRelated: ['engine'] // Passed to Model#fetchAll
+})
+.then(function (results) {
+ console.log(results); // Paginated results object with metadata example below
+})
 ```
 
-The `results` object contains the requested rows and pagination metadata.
-For the previous example, the `results` object looks like this:
+##### Reading the `pagination` metadata
+
+The `fetchPage` method attaches a `pagination` property to the resolved `Collection` instance.
 
 ```js
 {
-   rows: [<Car>], // the requested page of results
-   rowCount: 15, // Would be less than 15 on the last page of results
-   total: 53, // Total number of rows found for the query before pagination
-   limit: 15, // The requested number of rows per page, same as rowCount except final page
-   page: 3, // The requested page number
-   offset: 30 // The requested offset, calculated from the page/limit if not provided
+ models: [<Car>], // Regular bookshelf Collection
+ // other standard Collection attributes
+ ...
+ pagination: {
+     rowCount: 53, // Total number of rows found for the query before pagination
+     pageCount: 4, // Total number of pages of results
+     page: 3, // The requested page number
+     pageSize: 15, // The requested number of rows per page
+
+     // OR, if limit/offset pagination is used instead of page/pageSize:
+     // offset: 30, // The requested offset
+     // limit: 15 // The requested limit
+ }
 }
 ```
-
-#### Parameters
-
-- options {object} The pagination options, plus any additional options that will be passed to
-  Model#fetchAll
