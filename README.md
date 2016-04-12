@@ -1,4 +1,4 @@
-# bookshelf-page v0.3.0
+# bookshelf-page v0.3.1
 
 ### Important
 
