@@ -62,7 +62,7 @@ module.exports = function paginationPlugin (bookshelf) {
 
         let _sort;
 
-        if (sort && sort.startsWith('-')) {
+        if (sort && sort.indexOf('-') === 0) {
             _sort = sort.slice(1);
         } else if (sort) {
             _sort = sort;
@@ -71,7 +71,7 @@ module.exports = function paginationPlugin (bookshelf) {
         }
 
         const _order = order || (
-            (sort && sort.startsWith('-')) ? 'DESC' : 'ASC'
+            (sort && sort.indexOf('-') === 0) ? 'DESC' : 'ASC'
         );
 
         if (_sort.indexOf('.') === -1) {
